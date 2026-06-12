@@ -15,6 +15,7 @@ export default function PatientPayment() {
   const payments = useHospitalStore((s) => s.payments);
   const prescriptions = useHospitalStore((s) => s.prescriptions);
   const processPayment = useHospitalStore((s) => s.processPayment);
+  const getPaymentsByUser = useHospitalStore((s) => s.getPaymentsByUser);
   const getDoctorById = useHospitalStore((s) => s.getDoctorById);
   const getDepartmentById = useHospitalStore((s) => s.getDepartmentById);
 
@@ -30,10 +31,10 @@ export default function PatientPayment() {
     [appointments, currentUser]
   );
 
-  const userPayments = useMemo(() => {
-    const aptIds = userAppointments.map((a) => a.id);
-    return payments.filter((p) => aptIds.includes(p.appointmentId));
-  }, [payments, userAppointments]);
+  const userPayments = useMemo(
+    () => (currentUser ? getPaymentsByUser(currentUser.id) : []),
+    [currentUser, getPaymentsByUser, payments]
+  );
 
   const unpaidPayments = useMemo(
     () => userPayments.filter((p) => p.status === 'unpaid'),
@@ -67,20 +68,23 @@ export default function PatientPayment() {
     }
     const payment = userPayments.find((p) => p.id === selectedPayment);
     if (!payment) return;
-
-    const apt = appointments.find((a) => a.id === payment.appointmentId);
-    if (!apt) return;
+    if (payment.status === 'paid') {
+      setToast('该订单已支付');
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
 
     setIsProcessing(true);
     setTimeout(() => {
       try {
-        const result = processPayment(apt.id);
+        const result = processPayment(payment.id);
         setIsProcessing(false);
         setShowSuccess(result);
         setSelectedPayment(null);
-      } catch {
+        setExpandedPayment(null);
+      } catch (err) {
         setIsProcessing(false);
-        setToast('支付失败，请稍后重试');
+        setToast(err instanceof Error ? err.message : '支付失败，请稍后重试');
         setTimeout(() => setToast(null), 2000);
       }
     }, 1500);

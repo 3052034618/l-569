@@ -45,7 +45,7 @@ const genId = () => Math.random().toString(36).slice(2, 11);
 
 export default function AdminConsole() {
   const navigate = useNavigate();
-  const { departments } = useHospitalStore();
+  const { departments, updateDepartmentQuota, regenerateSchedules } = useHospitalStore();
 
   const [quotaMap, setQuotaMap] = useState<Record<string, number>>(() => {
     const map: Record<string, number> = {};
@@ -125,6 +125,12 @@ export default function AdminConsole() {
   };
 
   const handleSave = () => {
+    Object.entries(quotaMap).forEach(([deptId, quota]) => {
+      updateDepartmentQuota(deptId, quota);
+    });
+    Object.keys(scheduleMatrix).forEach((deptId) => {
+      regenerateSchedules(deptId, scheduleMatrix[deptId]);
+    });
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 2500);
   };

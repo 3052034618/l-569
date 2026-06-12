@@ -80,7 +80,7 @@ export default function PatientAppointment() {
       );
       setToast('预约成功！');
       setShowConfirm(false);
-      setTimeout(() => navigate('/patient/home'), 1500);
+      setTimeout(() => navigate('/patient'), 1200);
     } catch (e) {
       setToast('预约失败，请稍后重试');
       setTimeout(() => setToast(null), 2000);

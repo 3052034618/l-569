@@ -11,6 +11,7 @@ export default function PatientRecords() {
   const medicalRecords = useHospitalStore((s) => s.medicalRecords);
   const reviews = useHospitalStore((s) => s.reviews);
   const addMedicalRecord = useHospitalStore((s) => s.addMedicalRecord);
+  const deleteMedicalRecord = useHospitalStore((s) => s.deleteMedicalRecord);
   const addReview = useHospitalStore((s) => s.addReview);
   const getDoctorById = useHospitalStore((s) => s.getDoctorById);
   const getDepartmentById = useHospitalStore((s) => s.getDepartmentById);
@@ -79,7 +80,26 @@ export default function PatientRecords() {
   };
 
   const handleDeleteRecord = (recordId: string) => {
-    showToast('已删除');
+    deleteMedicalRecord(recordId);
+    showToast('病历已删除');
+  };
+
+  const handleDownloadRecord = (record: { fileName: string; fileType: string }) => {
+    const content = record.fileType === 'pdf'
+      ? '%PDF-1.4\n%模拟病历文件内容\n仁和医院病历附件\n文件名：' + record.fileName
+      : '仁和医院病历附件\n文件名：' + record.fileName + '\n上传时间：' + new Date().toLocaleString('zh-CN');
+    const blob = new Blob([content], {
+      type: record.fileType === 'pdf' ? 'application/pdf' : 'text/plain',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = record.fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('下载已开始');
   };
 
   const handleSubmitReview = () => {
@@ -279,6 +299,7 @@ export default function PatientRecords() {
                       </div>
                       <div className="flex items-center gap-1">
                         <button
+                          onClick={() => handleDownloadRecord(record)}
                           className="p-2 rounded-lg text-slate-500 hover:bg-white hover:text-medical-600 transition-colors"
                           title="下载"
                         >

@@ -62,15 +62,19 @@ interface HospitalState {
     type: 'examination' | 'medicine',
     items: PrescriptionItem[]
   ) => Prescription;
-  processPayment: (appointmentId: string) => Payment;
+  processPayment: (paymentId: string) => Payment;
   addMedicalRecord: (record: Omit<MedicalRecord, 'id' | 'uploadedAt'>) => MedicalRecord;
+  deleteMedicalRecord: (recordId: string) => void;
   addReview: (review: Omit<Review, 'id' | 'createdAt'>) => Review;
   markMessageRead: (messageId: string) => void;
   generateMonthlyReport: () => MonthlyReport[];
+  updateDepartmentQuota: (departmentId: string, dailyQuota: number) => void;
+  regenerateSchedules: (departmentId: string, rules: Record<string, boolean>) => void;
   getDoctorById: (id: string) => Doctor | undefined;
   getDepartmentById: (id: string) => Department | undefined;
   getAppointmentsByUser: (userId: string) => Appointment[];
   getAppointmentsByDoctor: (doctorId: string) => Appointment[];
+  getPaymentsByUser: (userId: string) => Payment[];
   getMessagesByUser: (userId: string, role?: UserRole) => Message[];
   getUnreadMessageCount: (userId: string, role?: UserRole) => number;
 }
@@ -144,18 +148,21 @@ export const useHospitalStore = create<HospitalState>((set, get) => ({
     }));
     const doctor = doctors.find((d) => d.id === doctorId);
     const dept = departments.find((d) => d.id === departmentId);
+    const timeSlotLabel: Record<string, string> = {
+      morning: '上午', afternoon: '下午', evening: '晚上',
+    };
     const msg: Message = {
       id: genId(),
       userId,
       role: 'patient',
       type: 'appointment',
       title: '预约成功',
-      content: `您已成功预约${dept?.name || ''}${doctor?.name || ''} ${date} ${timeSlot}门诊，挂号单号：${registrationNo}`,
+      content: `您已成功预约${dept?.name || ''}${doctor?.name || ''} ${date} ${timeSlotLabel[timeSlot] || timeSlot}门诊，挂号单号：${registrationNo}`,
       voucherAvailable: true,
       isRead: false,
       createdAt: new Date().toISOString(),
     };
-    set({ messages: [...messages, msg] });
+    set((state) => ({ messages: [...state.messages, msg] }));
     return appointment;
   },
 
@@ -220,38 +227,91 @@ export const useHospitalStore = create<HospitalState>((set, get) => ({
     set((state) => ({
       prescriptions: [...state.prescriptions, prescription],
     }));
-    return prescription;
-  },
 
-  processPayment: (appointmentId) => {
-    const { prescriptions, appointments, messages } = get();
+    const { prescriptions, appointments, messages, doctors, departments } = get();
     const aptPrescriptions = prescriptions.filter((p) => p.appointmentId === appointmentId);
-    const items: PrescriptionItem[] = aptPrescriptions.flatMap((p) => p.items);
-    const totalAmount = items.reduce((sum, it) => sum + it.totalPrice, 0);
-    const insuranceCoverage = items.reduce(
+    const allItems: PrescriptionItem[] = aptPrescriptions.flatMap((p) => p.items);
+    const totalAmount = allItems.reduce((sum, it) => sum + it.totalPrice, 0);
+    const insuranceCoverage = allItems.reduce(
       (sum, it) => sum + it.totalPrice * it.insuranceRatio,
       0
     );
     const selfPayAmount = totalAmount - insuranceCoverage;
+
+    const apt = appointments.find((a) => a.id === appointmentId);
+    const existingUnpaid = get().payments.find(
+      (p) => p.appointmentId === appointmentId && p.status === 'unpaid'
+    );
+
+    if (existingUnpaid) {
+      set((state) => ({
+        payments: state.payments.map((p) =>
+          p.id === existingUnpaid.id
+            ? {
+                ...p,
+                items: allItems,
+                totalAmount,
+                insuranceCoverage,
+                selfPayAmount,
+              }
+            : p
+        ),
+      }));
+    } else {
+      const payment: Payment = {
+        id: genId(),
+        appointmentId,
+        items: allItems,
+        totalAmount,
+        insuranceCoverage,
+        selfPayAmount,
+        status: 'unpaid',
+      };
+      set((state) => ({
+        payments: [...state.payments, payment],
+      }));
+    }
+
+    if (apt) {
+      const doctor = doctors.find((d) => d.id === doctorId);
+      const dept = departments.find((d) => d.id === apt.departmentId);
+      const msg: Message = {
+        id: genId(),
+        userId: apt.userId,
+        role: 'patient',
+        type: 'payment',
+        title: '待缴费提醒',
+        content: `${dept?.name || ''}${doctor?.name || ''}已为您开具${type === 'examination' ? '检查' : '药品'}处方，待支付金额：¥${selfPayAmount.toFixed(2)}（医保报销¥${insuranceCoverage.toFixed(2)}），请前往缴费页面完成支付`,
+        voucherAvailable: false,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      };
+      set((state) => ({ messages: [...state.messages, msg] }));
+    }
+
+    return prescription;
+  },
+
+  processPayment: (paymentId) => {
+    const { payments, appointments, messages } = get();
+    const payment = payments.find((p) => p.id === paymentId);
+    if (!payment) throw new Error('支付单不存在');
+    if (payment.status === 'paid') throw new Error('该订单已支付');
+
     const pickupWindow = String(Math.floor(Math.random() * 5) + 1);
-    const payment: Payment = {
-      id: genId(),
-      appointmentId,
-      items,
-      totalAmount,
-      insuranceCoverage,
-      selfPayAmount,
+    const updated: Payment = {
+      ...payment,
       status: 'paid',
       paidAt: new Date().toISOString(),
       pickupWindow,
     };
     set((state) => ({
-      payments: [...state.payments, payment],
+      payments: state.payments.map((p) => (p.id === paymentId ? updated : p)),
       appointments: state.appointments.map((a) =>
-        a.id === appointmentId ? { ...a, status: 'completed' } : a
+        a.id === payment.appointmentId ? { ...a, status: 'completed' } : a
       ),
     }));
-    const apt = appointments.find((a) => a.id === appointmentId);
+    const apt = appointments.find((a) => a.id === payment.appointmentId);
     if (apt) {
       const msg: Message = {
         id: genId(),
@@ -259,14 +319,14 @@ export const useHospitalStore = create<HospitalState>((set, get) => ({
         role: 'patient',
         type: 'payment',
         title: '缴费成功',
-        content: `缴费成功！总金额：¥${totalAmount.toFixed(2)}，医保报销：¥${insuranceCoverage.toFixed(2)}，自付：¥${selfPayAmount.toFixed(2)}。请到${pickupWindow}号窗口取药`,
+        content: `缴费成功！总金额：¥${payment.totalAmount.toFixed(2)}，医保报销：¥${payment.insuranceCoverage.toFixed(2)}，自付：¥${payment.selfPayAmount.toFixed(2)}。请到${pickupWindow}号窗口取药`,
         voucherAvailable: true,
         isRead: false,
         createdAt: new Date().toISOString(),
       };
       set((state) => ({ messages: [...state.messages, msg] }));
     }
-    return payment;
+    return updated;
   },
 
   addMedicalRecord: (record) => {
@@ -279,6 +339,12 @@ export const useHospitalStore = create<HospitalState>((set, get) => ({
       medicalRecords: [...state.medicalRecords, newRecord],
     }));
     return newRecord;
+  },
+
+  deleteMedicalRecord: (recordId) => {
+    set((state) => ({
+      medicalRecords: state.medicalRecords.filter((r) => r.id !== recordId),
+    }));
   },
 
   addReview: (review) => {
@@ -339,23 +405,89 @@ export const useHospitalStore = create<HospitalState>((set, get) => ({
       isRead: false,
       createdAt: new Date().toISOString(),
     }));
-    set({ messages: [...messages, ...newMessages] });
+    set((state) => ({ messages: [...state.messages, ...newMessages] }));
     return reports;
   },
 
+  updateDepartmentQuota: (departmentId, dailyQuota) => {
+    set((state) => ({
+      departments: state.departments.map((d) =>
+        d.id === departmentId ? { ...d, dailyQuota } : d
+      ),
+    }));
+  },
+
+  regenerateSchedules: (departmentId, rules) => {
+    const { schedules, doctors } = get();
+    const deptDoctors = doctors.filter((d) => d.departmentId === departmentId);
+    const next7Days: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      next7Days.push(d.toISOString().split('T')[0]);
+    }
+    const newSchedules: Schedule[] = [];
+    deptDoctors.forEach((doc) => {
+      next7Days.forEach((date, idx) => {
+        const dayIdx = (new Date(date).getDay() + 6) % 7;
+        (['morning', 'afternoon', 'evening'] as TimeSlot[]).forEach((slot) => {
+          const key = `${dayIdx}-${slot}`;
+          if (rules[key]) {
+            const existing = schedules.find(
+              (s) => s.doctorId === doc.id && s.date === date && s.timeSlot === slot
+            );
+            if (existing) {
+              newSchedules.push(existing);
+            } else {
+              const dept = get().departments.find((d) => d.id === departmentId);
+              const quota = Math.max(10, Math.floor((dept?.dailyQuota || 50) / (deptDoctors.length * 2)));
+              const timeRange: Record<TimeSlot, [string, string]> = {
+                morning: ['08:00', '12:00'],
+                afternoon: ['14:00', '17:30'],
+                evening: ['18:00', '20:30'],
+              };
+              newSchedules.push({
+                id: genId(),
+                doctorId: doc.id,
+                departmentId,
+                date,
+                timeSlot: slot,
+                startTime: timeRange[slot][0],
+                endTime: timeRange[slot][1],
+                totalQuota: quota,
+                remainingQuota: quota - Math.floor(Math.random() * Math.min(quota, 10)),
+              });
+            }
+          }
+        });
+      });
+    });
+    set((state) => {
+      const otherSchedules = state.schedules.filter(
+        (s) => s.departmentId !== departmentId
+      );
+      const deptOldSchedules = state.schedules.filter(
+        (s) => s.departmentId === departmentId
+      );
+      const remainingOld = deptOldSchedules.filter(
+        (old) => !newSchedules.find((ns) => ns.doctorId === old.doctorId && ns.date === old.date && ns.timeSlot === old.timeSlot)
+      );
+      return {
+        schedules: [...otherSchedules, ...remainingOld, ...newSchedules],
+      };
+    });
+  },
+
   getDoctorById: (id) => get().doctors.find((d) => d.id === id),
-
   getDepartmentById: (id) => get().departments.find((d) => d.id === id),
-
-  getAppointmentsByUser: (userId) =>
-    get().appointments.filter((a) => a.userId === userId),
-
-  getAppointmentsByDoctor: (doctorId) =>
-    get().appointments.filter((a) => a.doctorId === doctorId),
-
+  getAppointmentsByUser: (userId) => get().appointments.filter((a) => a.userId === userId),
+  getAppointmentsByDoctor: (doctorId) => get().appointments.filter((a) => a.doctorId === doctorId),
+  getPaymentsByUser: (userId) => {
+    const aptIds = get().appointments.filter((a) => a.userId === userId).map((a) => a.id);
+    return get().payments.filter((p) => aptIds.includes(p.appointmentId));
+  },
   getMessagesByUser: (userId, role) =>
     get().messages.filter((m) => m.userId === userId && (!role || m.role === role)),
-
   getUnreadMessageCount: (userId, role) =>
     get().messages.filter(
       (m) => m.userId === userId && (!role || m.role === role) && !m.isRead
