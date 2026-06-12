@@ -10,9 +10,13 @@ import {
   AlertCircle,
   Stethoscope,
   CreditCard,
+  FileUp,
+  Star,
+  ListTodo,
+  CheckCircle2,
 } from 'lucide-react';
 import { useHospitalStore } from '@/store';
-import type { Appointment, AppointmentStatus } from '@/types';
+import type { Appointment, AppointmentStatus, TodoItem } from '@/types';
 
 const statusConfig: Record<AppointmentStatus, { label: string; bg: string; text: string; border: string; dot: string }> = {
   pending: { label: '待就诊', bg: 'bg-blue-50', text: 'text-medical-600', border: 'border-medical-200', dot: 'bg-medical-500' },
@@ -35,6 +39,14 @@ const timeSlotLabel: Record<string, string> = {
   evening: '晚上',
 };
 
+const todoTypeConfig: Record<TodoItem['type'], { label: string; icon: any; color: string; bg: string; path: string }> = {
+  checkin: { label: '待签到', icon: QrCode, color: 'text-cyan-600', bg: 'bg-cyan-100', path: '/patient/checkin' },
+  payment: { label: '待缴费', icon: Wallet, color: 'text-emerald-600', bg: 'bg-emerald-100', path: '/patient/payment' },
+  examination: { label: '待预约检查', icon: CalendarPlus, color: 'text-violet-600', bg: 'bg-violet-100', path: '/patient/examination' },
+  medicine: { label: '待取药', icon: FileUp, color: 'text-amber-600', bg: 'bg-amber-100', path: '/patient/medicine' },
+  review: { label: '待评价', icon: Star, color: 'text-warning', bg: 'bg-warning/20', path: '/patient/records' },
+};
+
 export default function PatientHome() {
   const navigate = useNavigate();
   const currentUser = useHospitalStore((s) => s.currentUser);
@@ -42,6 +54,7 @@ export default function PatientHome() {
   const payments = useHospitalStore((s) => s.payments);
   const getDoctorById = useHospitalStore((s) => s.getDoctorById);
   const getDepartmentById = useHospitalStore((s) => s.getDepartmentById);
+  const getTodosByUser = useHospitalStore((s) => s.getTodosByUser);
 
   const myAppointments = useMemo(() => {
     if (!currentUser) return [];
@@ -55,6 +68,18 @@ export default function PatientHome() {
     const myAptIds = myAppointments.map((a) => a.id);
     return payments.filter((p) => myAptIds.includes(p.appointmentId) && p.status === 'unpaid');
   }, [payments, myAppointments, currentUser]);
+
+  const myTodos = useMemo(() => {
+    if (!currentUser) return [];
+    return getTodosByUser(currentUser.id);
+  }, [getTodosByUser, currentUser]);
+
+  const todoProgress = useMemo(() => {
+    const total = myTodos.length;
+    const completed = myTodos.filter((t) => t.status === 'completed').length;
+    const pending = total - completed;
+    return { total, completed, pending, percentage: total > 0 ? Math.round((completed / total) * 100) : 0 };
+  }, [myTodos]);
 
   const today = new Date();
   const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
@@ -91,6 +116,71 @@ export default function PatientHome() {
               <CreditCard className="w-4 h-4" />
               立即缴费
             </button>
+          </div>
+        </div>
+      )}
+
+      {myTodos.length > 0 && (
+        <div className="card overflow-hidden stagger-2 animate-fade-in-up">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+                <ListTodo className="w-5 h-5 text-indigo-500" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-slate-800">待办事项</h2>
+                <p className="text-xs text-slate-500">
+                  {todoProgress.total}项待办，已完成{todoProgress.completed}项
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-500"
+                  style={{ width: `${todoProgress.percentage}%` }}
+                />
+              </div>
+              <span className="text-sm font-medium text-slate-600">{todoProgress.percentage}%</span>
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {myTodos.map((todo: TodoItem, idx: number) => {
+              const config = todoTypeConfig[todo.type];
+              const Icon = config.icon;
+              const isCompleted = todo.status === 'completed';
+              return (
+                <button
+                  key={todo.id}
+                  onClick={() => navigate(config.path)}
+                  className="w-full flex items-center gap-4 px-6 py-4 hover:bg-slate-50 transition-colors text-left animate-fade-in-up"
+                  style={{ animationDelay: `${idx * 50}ms` }}
+                >
+                  <div className={`w-10 h-10 rounded-xl ${config.bg} flex items-center justify-center flex-shrink-0 transition-all ${isCompleted ? 'opacity-50' : ''}`}>
+                    {isCompleted ? (
+                      <CheckCircle2 className={`w-5 h-5 ${config.color}`} />
+                    ) : (
+                      <Icon className={`w-5 h-5 ${config.color}`} />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className={`font-medium ${isCompleted ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                        {todo.title}
+                      </h3>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${config.bg} ${config.color}`}>
+                        {config.label}
+                      </span>
+                    </div>
+                    <p className={`text-sm ${isCompleted ? 'text-slate-300' : 'text-slate-500'}`}>
+                      {todo.description}
+                    </p>
+                  </div>
+                  <ChevronRight className={`w-5 h-5 flex-shrink-0 ${isCompleted ? 'text-slate-300' : 'text-slate-400'}`} />
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

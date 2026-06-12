@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
-import { FileUp, Star, Download, Trash2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { FileUp, Star, Download, Trash2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Clock, Search } from 'lucide-react';
 import { useHospitalStore } from '@/store';
 import type { MedicalRecordFileType } from '@/types';
 
@@ -19,6 +19,7 @@ export default function PatientRecords() {
   const [activeTab, setActiveTab] = useState<TabType>('records');
   const [toast, setToast] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedReviewApt, setSelectedReviewApt] = useState<string | null>(null);
@@ -28,10 +29,15 @@ export default function PatientRecords() {
   const [comment, setComment] = useState('');
   const [hoveredStar, setHoveredStar] = useState<{ field: string; score: number } | null>(null);
 
-  const userRecords = useMemo(
-    () => (currentUser ? medicalRecords.filter((r) => r.userId === currentUser.id) : []),
-    [medicalRecords, currentUser]
-  );
+  const userRecords = useMemo(() => {
+    if (!currentUser) return [];
+    const filtered = medicalRecords
+      .filter((r) => r.userId === currentUser.id)
+      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+    if (!searchKeyword.trim()) return filtered;
+    const keyword = searchKeyword.trim().toLowerCase();
+    return filtered.filter((r) => r.fileName.toLowerCase().includes(keyword));
+  }, [medicalRecords, currentUser, searchKeyword]);
 
   const userAppointments = useMemo(
     () => (currentUser ? appointments.filter((a) => a.userId === currentUser.id) : []),
@@ -262,10 +268,20 @@ export default function PatientRecords() {
             </div>
 
             <div className="card p-6">
-              <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
                 <h2 className="font-bold text-lg text-slate-800">
                   已上传病历 <span className="text-sm font-normal text-slate-400">({userRecords.length})</span>
                 </h2>
+                <div className="relative w-full md:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="搜索文件名..."
+                    value={searchKeyword}
+                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    className="input-field pl-10 pr-4 py-2 w-full"
+                  />
+                </div>
               </div>
 
               {userRecords.length === 0 ? (

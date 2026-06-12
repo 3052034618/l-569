@@ -35,7 +35,7 @@ const formatSize = (bytes: number) => {
 
 export default function DoctorRecords() {
   const navigate = useNavigate();
-  const { currentUser, getAppointmentsByDoctor, medicalRecords, prescriptions, doctors } = useHospitalStore();
+  const { currentUser, getAppointmentsByDoctor, medicalRecords, prescriptions, payments, doctors } = useHospitalStore();
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,6 +88,12 @@ export default function DoctorRecords() {
 
   const getPrescriptionsForAppointment = (aptId: string) => {
     return prescriptions.filter((p) => p.appointmentId === aptId);
+  };
+
+  const getExamResultForItem = (aptId: string, itemId: string) => {
+    const payment = payments.find((p) => p.appointmentId === aptId);
+    if (!payment) return null;
+    return payment.itemDetails.find((d) => d.itemId === itemId && d.type === 'examination');
   };
 
   const selectedPatientInfo = selectedUserId ? patientNameMap[selectedUserId] : null;
@@ -272,27 +278,74 @@ export default function DoctorRecords() {
                                   <Pill className="w-3 h-3" />
                                   开具处方
                                 </p>
-                                <div className="space-y-1.5">
+                                <div className="space-y-2">
                                   {aptPrescriptions.map((pre) => (
-                                    <div
-                                      key={pre.id}
-                                      className="flex items-center gap-2 text-xs text-slate-600"
-                                    >
-                                      <span
-                                        className={`badge ${
-                                          pre.type === 'examination'
-                                            ? 'bg-cyan-100 text-cyan-700'
-                                            : 'bg-purple-100 text-purple-700'
-                                        }`}
-                                      >
-                                        {pre.type === 'examination' ? '检查' : '药品'}
-                                      </span>
-                                      <span>
-                                        {pre.items.map((i) => i.name).join('、')}
-                                      </span>
-                                      <span className="text-slate-400 ml-auto">
-                                        ¥{pre.items.reduce((s, i) => s + i.totalPrice, 0).toFixed(2)}
-                                      </span>
+                                    <div key={pre.id}>
+                                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                                        <span
+                                          className={`badge ${
+                                            pre.type === 'examination'
+                                              ? 'bg-cyan-100 text-cyan-700'
+                                              : 'bg-purple-100 text-purple-700'
+                                          }`}
+                                        >
+                                          {pre.type === 'examination' ? '检查' : '药品'}
+                                        </span>
+                                        <span>
+                                          {pre.items.map((i) => i.name).join('、')}
+                                        </span>
+                                        <span className="text-slate-400 ml-auto">
+                                          ¥{pre.items.reduce((s, i) => s + i.totalPrice, 0).toFixed(2)}
+                                        </span>
+                                      </div>
+                                      {pre.type === 'examination' && (
+                                        <div className="mt-1.5 space-y-1.5">
+                                          {pre.items.map((item) => {
+                                            const examDetail = getExamResultForItem(apt.id, item.id);
+                                            const hasResult = !!examDetail?.examResult;
+                                            return (
+                                              <div
+                                                key={item.id}
+                                                className={`p-2.5 rounded-md text-xs ${
+                                                  hasResult
+                                                    ? 'bg-emerald-50 border border-emerald-200'
+                                                    : 'bg-slate-50 border border-slate-200'
+                                                }`}
+                                              >
+                                                <div className="flex items-center justify-between mb-1">
+                                                  <span className="font-medium text-slate-700">
+                                                    {item.name}
+                                                  </span>
+                                                  <span
+                                                    className={`badge text-[10px] ${
+                                                      hasResult
+                                                        ? 'bg-emerald-100 text-emerald-700'
+                                                        : 'bg-slate-100 text-slate-500'
+                                                    }`}
+                                                  >
+                                                    {hasResult ? '已完成' : '待检查'}
+                                                  </span>
+                                                </div>
+                                                {hasResult && examDetail ? (
+                                                  <>
+                                                    <p className="text-slate-600 mb-1">
+                                                      {examDetail.examResult}
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                                                      <Clock className="w-2.5 h-2.5" />
+                                                      {formatDateTime(examDetail.examCompletedAt!)}
+                                                    </p>
+                                                  </>
+                                                ) : (
+                                                  <p className="text-slate-400 text-[11px]">
+                                                    等待患者完成检查
+                                                  </p>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
                                     </div>
                                   ))}
                                 </div>

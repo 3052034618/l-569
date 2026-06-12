@@ -29,6 +29,7 @@ const navConfig: Record<UserRole, NavItem[]> = {
     { path: '/patient/appointment', label: '预约挂号', icon: CalendarDays },
     { path: '/patient/checkin', label: '签到叫号', icon: QrCode },
     { path: '/patient/payment', label: '就诊缴费', icon: CreditCard },
+    { path: '/patient/exam-booking', label: '检查预约', icon: Stethoscope },
     { path: '/patient/records', label: '病历评价', icon: FileText },
   ],
   doctor: [

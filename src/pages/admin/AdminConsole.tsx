@@ -16,6 +16,7 @@ import {
   PartyPopper,
 } from 'lucide-react';
 import { useHospitalStore } from '@/store';
+import type { TimeSlot } from '@/types';
 
 const weekDays = [
   { key: 0, label: '周一' },
@@ -27,7 +28,7 @@ const weekDays = [
   { key: 6, label: '周日' },
 ];
 
-const timeSlots = [
+const timeSlots: Array<{ key: TimeSlot; label: string; icon: typeof Sun; time: string }> = [
   { key: 'morning', label: '上午', icon: Sun, time: '08:00-12:00' },
   { key: 'afternoon', label: '下午', icon: Sunset, time: '14:00-17:30' },
   { key: 'evening', label: '晚上', icon: Moon, time: '18:00-20:30' },
@@ -45,7 +46,7 @@ const genId = () => Math.random().toString(36).slice(2, 11);
 
 export default function AdminConsole() {
   const navigate = useNavigate();
-  const { departments, updateDepartmentQuota, regenerateSchedules } = useHospitalStore();
+  const { departments, schedules, updateDepartmentQuota, regenerateSchedules } = useHospitalStore();
 
   const [quotaMap, setQuotaMap] = useState<Record<string, number>>(() => {
     const map: Record<string, number> = {};
@@ -57,12 +58,30 @@ export default function AdminConsole() {
 
   const [scheduleMatrix, setScheduleMatrix] = useState<Record<string, Record<string, boolean>>>(() => {
     const matrix: Record<string, Record<string, boolean>> = {};
+
+    const next7Days: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      next7Days.push(d.toISOString().split('T')[0]);
+    }
+
     departments.forEach((dept) => {
       matrix[dept.id] = {};
       weekDays.forEach((day) => {
         timeSlots.forEach((slot) => {
           const key = `${day.key}-${slot.key}`;
-          matrix[dept.id][key] = day.key < 5 ? slot.key !== 'evening' : slot.key === 'morning';
+          const hasSchedule = next7Days.some((date) => {
+            const dayIdx = (new Date(date).getDay() + 6) % 7;
+            if (dayIdx !== day.key) return false;
+            return schedules.some(
+              (s) =>
+                s.departmentId === dept.id &&
+                s.date === date &&
+                s.timeSlot === slot.key
+            );
+          });
+          matrix[dept.id][key] = hasSchedule;
         });
       });
     });

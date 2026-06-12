@@ -9,6 +9,7 @@ import {
   Download,
   Inbox,
   CheckCircle2,
+  Stethoscope,
 } from 'lucide-react';
 import { useHospitalStore } from '@/store';
 import type { MessageType } from '@/types';
@@ -24,6 +25,7 @@ const tabs: TabItem[] = [
   { key: 'appointment', label: '预约', icon: CalendarCheck },
   { key: 'checkin', label: '签到', icon: MapPinCheck },
   { key: 'payment', label: '缴费', icon: CreditCard },
+  { key: 'examination', label: '检查', icon: Stethoscope },
   { key: 'report', label: '报表', icon: BarChart3 },
   { key: 'system', label: '系统', icon: Settings },
 ];
@@ -34,6 +36,7 @@ const typeColorMap: Record<MessageType, { bg: string; text: string; iconBg: stri
   payment: { bg: 'bg-emerald-50', text: 'text-emerald-600', iconBg: 'bg-emerald-100' },
   report: { bg: 'bg-purple-50', text: 'text-purple-600', iconBg: 'bg-purple-100' },
   system: { bg: 'bg-slate-50', text: 'text-slate-600', iconBg: 'bg-slate-100' },
+  examination: { bg: 'bg-blue-50', text: 'text-blue-600', iconBg: 'bg-blue-100' },
 };
 
 const formatDateTime = (iso: string) => {

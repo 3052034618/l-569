@@ -1,150 +1,5 @@
-export type UserRole = 'patient' | 'doctor' | 'director' | 'admin';
-
-export interface User {
-  id: string;
-  role: UserRole;
-  name: string;
-  phone: string;
-  idCard?: string;
-  avatar?: string;
-  departmentId?: string;
-  doctorId?: string;
-}
-
-export interface Department {
-  id: string;
-  name: string;
-  directorId: string;
-  dailyQuota: number;
-  description: string;
-}
-
-export interface Doctor {
-  id: string;
-  name: string;
-  title: string;
-  departmentId: string;
-  specialty: string;
-  rating: number;
-  reviewCount: number;
-  avatar: string;
-}
-
-export type TimeSlot = 'morning' | 'afternoon' | 'evening';
-
-export interface Schedule {
-  id: string;
-  doctorId: string;
-  departmentId: string;
-  date: string;
-  timeSlot: TimeSlot;
-  startTime: string;
-  endTime: string;
-  totalQuota: number;
-  remainingQuota: number;
-}
-
-export type AppointmentStatus = 'pending' | 'checked_in' | 'in_progress' | 'completed' | 'cancelled';
-
-export interface Appointment {
-  id: string;
-  userId: string;
-  doctorId: string;
-  departmentId: string;
-  scheduleId: string;
-  date: string;
-  timeSlot: TimeSlot;
-  status: AppointmentStatus;
-  registrationNo: string;
-  sequenceNo?: number;
-  createdAt: string;
-}
-
-export type PrescriptionType = 'examination' | 'medicine';
-
-export interface PrescriptionItem {
-  id: string;
-  name: string;
-  specification?: string;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
-  insuranceRatio: number;
-}
-
-export interface Prescription {
-  id: string;
-  appointmentId: string;
-  doctorId: string;
-  type: PrescriptionType;
-  items: PrescriptionItem[];
-  createdAt: string;
-}
-
-export type PaymentStatus = 'unpaid' | 'paid';
-
-export interface Payment {
-  id: string;
-  appointmentId: string;
-  items: PrescriptionItem[];
-  totalAmount: number;
-  insuranceCoverage: number;
-  selfPayAmount: number;
-  status: PaymentStatus;
-  paidAt?: string;
-  pickupWindow?: string;
-}
-
-export interface Review {
-  id: string;
-  userId: string;
-  doctorId: string;
-  appointmentId: string;
-  attitudeScore: number;
-  professionalScore: number;
-  environmentScore: number;
-  comment?: string;
-  createdAt: string;
-}
-
-export interface MedicalRecord {
-  id: string;
-  userId: string;
-  appointmentId: string;
-  fileName: string;
-  fileType: 'image' | 'pdf';
-  fileSize: number;
-  uploadedAt: string;
-}
-
-export type MessageType = 'appointment' | 'checkin' | 'payment' | 'report' | 'system';
-
-export interface Message {
-  id: string;
-  userId: string;
-  role: UserRole;
-  type: MessageType;
-  title: string;
-  content: string;
-  voucherAvailable: boolean;
-  isRead: boolean;
-  createdAt: string;
-}
-
-export interface MonthlyReport {
-  id: string;
-  departmentId: string;
-  departmentName: string;
-  month: string;
-  revenue: number;
-  revenueGrowth: number;
-  patientCount: number;
-  patientGrowth: number;
-  avgWaitTime: number;
-  avgSatisfaction: number;
-  doctorWorkload: Array<{ doctorId: string; doctorName: string; patientCount: number; avgScore: number }>;
-  generatedAt: string;
-}
+import type { User, Department, Doctor, Schedule, Appointment, Prescription, Payment, Review, MedicalRecord, Message, MonthlyReport, PaymentItemDetail, TimeSlot, PrescriptionItem } from '../types';
+import { EXAM_LOCATIONS, EXAM_NOTES } from '../types';
 
 export const departments: Department[] = [
   {
@@ -688,11 +543,52 @@ export const prescriptions: Prescription[] = [
   }
 ];
 
+function buildPaymentItemDetails(
+  items: PrescriptionItem[],
+  appointmentId: string,
+  pickupWindow?: string
+): PaymentItemDetail[] {
+  const examPrescriptions = prescriptions.filter(
+    (p) => p.appointmentId === appointmentId && p.type === 'examination'
+  );
+  const medPrescriptions = prescriptions.filter(
+    (p) => p.appointmentId === appointmentId && p.type === 'medicine'
+  );
+
+  return items.map((item) => {
+    const isExam = examPrescriptions.some((p) => p.items.some((i) => i.id === item.id));
+    const isMed = medPrescriptions.some((p) => p.items.some((i) => i.id === item.id));
+    const type: 'examination' | 'medicine' = isExam ? 'examination' : isMed ? 'medicine' : 'medicine';
+
+    const detail: PaymentItemDetail = {
+      itemId: item.id,
+      type,
+      name: item.name,
+      amount: item.totalPrice,
+    };
+
+    if (type === 'medicine') {
+      detail.medicineStatus = pickupWindow ? 'dispensed' : 'pending';
+      detail.pickupWindow = pickupWindow;
+    } else {
+      detail.examLocation = EXAM_LOCATIONS[item.name] || '门诊楼1层';
+      detail.examNotes = EXAM_NOTES[item.name] || '请按医嘱进行检查';
+    }
+
+    return detail;
+  });
+}
+
 export const payments: Payment[] = [
   {
     id: 'pay1',
     appointmentId: 'apt1',
     items: prescriptions[0].items.concat(prescriptions[1].items),
+    itemDetails: buildPaymentItemDetails(
+      prescriptions[0].items.concat(prescriptions[1].items),
+      'apt1',
+      '3号取药窗口'
+    ),
     totalAmount: 571,
     insuranceCoverage: 415.35,
     selfPayAmount: 155.65,
@@ -704,6 +600,10 @@ export const payments: Payment[] = [
     id: 'pay2',
     appointmentId: 'apt2',
     items: prescriptions[2].items.concat(prescriptions[3].items),
+    itemDetails: buildPaymentItemDetails(
+      prescriptions[2].items.concat(prescriptions[3].items),
+      'apt2'
+    ),
     totalAmount: 253,
     insuranceCoverage: 179.15,
     selfPayAmount: 73.85,
@@ -713,6 +613,10 @@ export const payments: Payment[] = [
     id: 'pay3',
     appointmentId: 'apt3',
     items: prescriptions[4].items,
+    itemDetails: buildPaymentItemDetails(
+      prescriptions[4].items,
+      'apt3'
+    ),
     totalAmount: 680,
     insuranceCoverage: 442,
     selfPayAmount: 238,
@@ -723,6 +627,7 @@ export const payments: Payment[] = [
     id: 'pay4',
     appointmentId: 'apt4',
     items: [],
+    itemDetails: [],
     totalAmount: 30,
     insuranceCoverage: 0,
     selfPayAmount: 30,

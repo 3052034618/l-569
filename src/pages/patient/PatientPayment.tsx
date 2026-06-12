@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
-import { Wallet, CreditCard, Smartphone, ShieldCheck, ChevronDown, ChevronUp, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Wallet, CreditCard, Smartphone, ShieldCheck, ChevronDown, ChevronUp, CheckCircle, AlertCircle, Clock, Pill, Stethoscope, CalendarCheck, MapPin, FileText } from 'lucide-react';
 import { useHospitalStore } from '@/store';
-import type { Payment, PrescriptionItem } from '@/types';
+import type { Payment, PrescriptionItem, PaymentItemDetail, MedicineStatus } from '@/types';
 
 const paymentMethods = [
   { id: 'wechat', name: '微信支付', icon: Smartphone, color: 'from-green-500 to-emerald-500', desc: '推荐使用' },
@@ -10,6 +11,7 @@ const paymentMethods = [
 ];
 
 export default function PatientPayment() {
+  const navigate = useNavigate();
   const currentUser = useHospitalStore((s) => s.currentUser);
   const appointments = useHospitalStore((s) => s.appointments);
   const payments = useHospitalStore((s) => s.payments);
@@ -18,6 +20,30 @@ export default function PatientPayment() {
   const getPaymentsByUser = useHospitalStore((s) => s.getPaymentsByUser);
   const getDoctorById = useHospitalStore((s) => s.getDoctorById);
   const getDepartmentById = useHospitalStore((s) => s.getDepartmentById);
+
+  const getMedicineStatusText = (status: MedicineStatus) => {
+    const map: Record<MedicineStatus, string> = {
+      pending: '待配药',
+      dispensed: '已配药',
+      picked_up: '已取药',
+    };
+    return map[status];
+  };
+
+  const getMedicineStatusColor = (status: MedicineStatus) => {
+    const map: Record<MedicineStatus, string> = {
+      pending: 'bg-amber-100 text-amber-700',
+      dispensed: 'bg-blue-100 text-blue-700',
+      picked_up: 'bg-success/10 text-success',
+    };
+    return map[status];
+  };
+
+  const getUnbookedExams = (itemDetails: PaymentItemDetail[]) => {
+    return itemDetails.filter(
+      (item) => item.type === 'examination' && !item.examAppointmentTime
+    );
+  };
 
   const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
@@ -323,39 +349,126 @@ export default function PatientPayment() {
               <CheckCircle className="w-5 h-5 text-success" />
               已缴费记录 ({paidPayments.length})
             </h2>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {paidPayments.map((payment) => {
                 const apt = appointments.find((a) => a.id === payment.appointmentId);
                 const doctor = apt ? getDoctorById(apt.doctorId) : null;
                 const dept = apt ? getDepartmentById(apt.departmentId) : null;
+                const medItems = payment.itemDetails.filter((item) => item.type === 'medicine');
+                const examItems = payment.itemDetails.filter((item) => item.type === 'examination');
+                const unbookedExams = getUnbookedExams(payment.itemDetails);
+
                 return (
                   <div
                     key={payment.id}
-                    className="p-4 rounded-xl bg-slate-50 flex items-center gap-4"
+                    className="p-5 rounded-xl bg-slate-50 space-y-4"
                   >
-                    <div className="w-10 h-10 rounded-full bg-success/10 flex items-center justify-center">
-                      <CheckCircle className="w-5 h-5 text-success" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-800">
-                        {dept?.name} · {doctor?.name}
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-full bg-success/10 flex items-center justify-center flex-shrink-0">
+                        <CheckCircle className="w-5 h-5 text-success" />
                       </div>
-                      <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-3">
-                        <span>{apt?.date}</span>
-                        <span>共{payment.items.length}项</span>
-                        {payment.paidAt && <span>支付于 {new Date(payment.paidAt).toLocaleString('zh-CN')}</span>}
-                      </div>
-                      {payment.pickupWindow && (
-                        <div className="text-xs text-medical-600 mt-1 flex items-center gap-1">
-                          <ShieldCheck className="w-3 h-3" />
-                          取药窗口：{payment.pickupWindow}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-800">
+                          {dept?.name} · {doctor?.name}
                         </div>
-                      )}
+                        <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-3 flex-wrap">
+                          <span>{apt?.date}</span>
+                          <span>共{payment.items.length}项</span>
+                          {payment.paidAt && <span>支付于 {new Date(payment.paidAt).toLocaleString('zh-CN')}</span>}
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-lg font-bold text-slate-700">¥{payment.selfPayAmount.toFixed(2)}</div>
+                        <div className="text-xs text-slate-400">医保报销 ¥{payment.insuranceCoverage.toFixed(2)}</div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-slate-700">¥{payment.selfPayAmount.toFixed(2)}</div>
-                      <div className="text-xs text-slate-400">医保报销 ¥{payment.insuranceCoverage.toFixed(2)}</div>
-                    </div>
+
+                    {medItems.length > 0 && (
+                      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
+                            <Pill className="w-4 h-4 text-white" />
+                          </div>
+                          <span className="font-semibold text-emerald-800">药品项目 ({medItems.length}项)</span>
+                        </div>
+                        <div className="space-y-2">
+                          {medItems.map((item) => (
+                            <div key={item.itemId} className="bg-white rounded-lg p-3 border border-emerald-100">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-medium text-slate-700">{item.name}</span>
+                                {item.medicineStatus && (
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getMedicineStatusColor(item.medicineStatus)}`}>
+                                    {getMedicineStatusText(item.medicineStatus)}
+                                  </span>
+                                )}
+                              </div>
+                              {item.pickupWindow && (
+                                <div className="text-xs text-emerald-700 flex items-center gap-1">
+                                  <ShieldCheck className="w-3 h-3" />
+                                  取药窗口：{item.pickupWindow}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {examItems.length > 0 && (
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
+                            <Stethoscope className="w-4 h-4 text-white" />
+                          </div>
+                          <span className="font-semibold text-blue-800">检查项目 ({examItems.length}项)</span>
+                        </div>
+                        <div className="space-y-2">
+                          {examItems.map((item) => (
+                            <div key={item.itemId} className="bg-white rounded-lg p-3 border border-blue-100">
+                              <div className="font-medium text-slate-700 mb-2">{item.name}</div>
+                              {item.examLocation && (
+                                <div className="text-xs text-blue-700 flex items-center gap-1 mb-1">
+                                  <MapPin className="w-3 h-3" />
+                                  检查地点：{item.examLocation}
+                                </div>
+                              )}
+                              {item.examAppointmentTime ? (
+                                <div className="text-xs text-blue-700 flex items-center gap-1 mb-1">
+                                  <CalendarCheck className="w-3 h-3" />
+                                  预约时间：{item.examAppointmentTime}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-amber-600 flex items-center gap-1 mb-1">
+                                  <AlertCircle className="w-3 h-3" />
+                                  未预约
+                                </div>
+                              )}
+                              {item.examNotes && (
+                                <div className="text-xs text-slate-600 flex items-start gap-1 mb-1">
+                                  <FileText className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  注意事项：{item.examNotes}
+                                </div>
+                              )}
+                              {item.examResult && (
+                                <div className="text-xs text-success flex items-start gap-1">
+                                  <CheckCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  检查结果：{item.examResult}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {unbookedExams.length > 0 && (
+                          <button
+                            onClick={() => navigate('/patient/exam-booking')}
+                            className="mt-3 w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm font-medium hover:shadow-lg transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <CalendarCheck className="w-4 h-4" />
+                            去预约检查 ({unbookedExams.length}项)
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -365,8 +478,8 @@ export default function PatientPayment() {
       </div>
 
       {showSuccess && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-8 text-center max-w-md w-full animate-fade-in-up">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl p-8 text-center max-w-md w-full animate-fade-in-up my-8">
             <div className="w-20 h-20 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-5">
               <CheckCircle className="w-12 h-12 text-success" strokeWidth={2} />
             </div>
@@ -386,21 +499,79 @@ export default function PatientPayment() {
                 <span className="text-danger font-bold text-lg">¥{showSuccess.selfPayAmount.toFixed(2)}</span>
               </div>
             </div>
-            {showSuccess.pickupWindow && (
-              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-left mb-6">
-                <div className="text-amber-700 font-medium flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5" />
-                  取药指引
+
+            {showSuccess.itemDetails.filter((item) => item.type === 'medicine').length > 0 && (
+              <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 text-left mb-4">
+                <div className="text-emerald-700 font-medium flex items-center gap-2 mb-2">
+                  <Pill className="w-5 h-5" />
+                  药品取药指引
                 </div>
-                <p className="text-amber-600 text-sm mt-1">请前往 <span className="font-bold">{showSuccess.pickupWindow}</span> 取药</p>
+                <div className="space-y-2">
+                  {showSuccess.itemDetails.filter((item) => item.type === 'medicine').map((item) => (
+                    <div key={item.itemId} className="text-emerald-600 text-sm">
+                      <div className="font-medium">{item.name}</div>
+                      {item.medicineStatus && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getMedicineStatusColor(item.medicineStatus)}`}>
+                            {getMedicineStatusText(item.medicineStatus)}
+                          </span>
+                          {item.pickupWindow && <span>· 取药窗口：{item.pickupWindow}</span>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
-            <button
-              onClick={() => setShowSuccess(null)}
-              className="btn-primary w-full py-3"
-            >
-              完成
-            </button>
+
+            {showSuccess.itemDetails.filter((item) => item.type === 'examination').length > 0 && (
+              <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 text-left mb-4">
+                <div className="text-blue-700 font-medium flex items-center gap-2 mb-2">
+                  <Stethoscope className="w-5 h-5" />
+                  检查项目指引
+                </div>
+                <div className="space-y-2">
+                  {showSuccess.itemDetails.filter((item) => item.type === 'examination').map((item) => (
+                    <div key={item.itemId} className="text-blue-600 text-sm">
+                      <div className="font-medium">{item.name}</div>
+                      {item.examLocation && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <MapPin className="w-3 h-3" />
+                          <span>{item.examLocation}</span>
+                        </div>
+                      )}
+                      {item.examNotes && (
+                        <div className="flex items-start gap-1 mt-0.5">
+                          <FileText className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span className="text-slate-600">{item.examNotes}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {showSuccess.itemDetails.filter((item) => item.type === 'examination').length > 0 && (
+                <button
+                  onClick={() => {
+                    setShowSuccess(null);
+                    navigate('/patient/exam-booking');
+                  }}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                >
+                  <CalendarCheck className="w-5 h-5" />
+                  立即预约检查
+                </button>
+              )}
+              <button
+                onClick={() => setShowSuccess(null)}
+                className="w-full py-3 rounded-xl border-2 border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition-all"
+              >
+                完成
+              </button>
+            </div>
           </div>
         </div>
       )}

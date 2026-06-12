@@ -6,6 +6,7 @@ import PatientAppointment from '@/pages/patient/PatientAppointment';
 import PatientCheckIn from '@/pages/patient/PatientCheckIn';
 import PatientPayment from '@/pages/patient/PatientPayment';
 import PatientRecords from '@/pages/patient/PatientRecords';
+import PatientExamBooking from '@/pages/patient/PatientExamBooking';
 import DoctorHome from '@/pages/doctor/DoctorHome';
 import DoctorPrescription from '@/pages/doctor/DoctorPrescription';
 import DoctorRecords from '@/pages/doctor/DoctorRecords';
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="appointment" element={<PatientAppointment />} />
             <Route path="checkin" element={<PatientCheckIn />} />
             <Route path="payment" element={<PatientPayment />} />
+            <Route path="exam-booking" element={<PatientExamBooking />} />
             <Route path="records" element={<PatientRecords />} />
           </Route>
 
