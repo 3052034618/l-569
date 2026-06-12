@@ -21,7 +21,7 @@ import type {
   MedicineStatus,
   PaymentStatus,
 } from '../types';
-import { EXAM_LOCATIONS, EXAM_NOTES } from '../types';
+import { EXAM_LOCATIONS, EXAM_NOTES, EXAM_DEPARTMENTS, EXAM_ITEM_DEPARTMENT_MAP, PICKUP_WINDOW_COUNT } from '../types';
 import {
   users as mockUsers,
   departments as mockDepartments,
@@ -77,9 +77,13 @@ interface HospitalState {
   generateMonthlyReport: () => MonthlyReport[];
   updateDepartmentQuota: (departmentId: string, dailyQuota: number) => void;
   regenerateSchedules: (departmentId: string, rules: Record<string, boolean>) => void;
-  bookExamTime: (paymentId: string, itemId: string, appointmentTime: string) => void;
+  bookExamTime: (paymentId: string, itemId: string, appointmentTime: string) => boolean;
   completeExam: (paymentId: string, itemId: string, result: string) => void;
+  releaseExamReport: (paymentId: string, itemId: string) => void;
   updateMedicineStatus: (paymentId: string, itemId: string, status: MedicineStatus) => void;
+  dispenseMedicine: (paymentId: string, itemId: string) => void;
+  getExamSlotAvailability: (examName: string, date: string, time: string) => number;
+  checkExamTimeConflict: (userId: string, date: string, time: string, excludeItemId?: string) => boolean;
   addTodo: (todo: Omit<TodoItem, 'id' | 'createdAt'>) => void;
   markTodoCompleted: (todoId: string) => void;
   getDoctorById: (id: string) => Doctor | undefined;
@@ -105,7 +109,8 @@ const buildItemDetails = (
   items: PrescriptionItem[],
   existingPrescriptions: Prescription[],
   appointmentId: string,
-  pickupWindow?: string
+  pickupWindow?: string,
+  includePickupCode = false,
 ): PaymentItemDetail[] => {
   const examPrescriptions = existingPrescriptions.filter(
     (p) => p.appointmentId === appointmentId && p.type === 'examination'
@@ -114,7 +119,7 @@ const buildItemDetails = (
     (p) => p.appointmentId === appointmentId && p.type === 'medicine'
   );
 
-  return items.map((item) => {
+  return items.map((item, idx) => {
     const isExam = examPrescriptions.some((p) => p.items.some((i) => i.id === item.id));
     const isMed = medPrescriptions.some((p) => p.items.some((i) => i.id === item.id));
     const type: 'examination' | 'medicine' = isExam ? 'examination' : isMed ? 'medicine' : 'medicine';
@@ -127,11 +132,16 @@ const buildItemDetails = (
     };
 
     if (type === 'medicine') {
-      detail.medicineStatus = pickupWindow ? 'dispensed' : 'pending';
+      detail.medicineStatus = pickupWindow ? 'pending' : 'pending';
       detail.pickupWindow = pickupWindow;
+      if (includePickupCode && pickupWindow) {
+        detail.medicinePickupCode = String(100000 + Math.floor(Math.random() * 900000));
+        detail.medicineQueuePosition = idx + 1 + Math.floor(Math.random() * 10);
+      }
     } else {
       detail.examLocation = EXAM_LOCATIONS[item.name] || '门诊楼1层';
       detail.examNotes = EXAM_NOTES[item.name] || '请按医嘱进行检查';
+      detail.examReportStatus = 'pending';
     }
 
     return detail;
@@ -398,9 +408,9 @@ export const useHospitalStore = create<HospitalState>()(
         if (!payment) throw new Error('支付单不存在');
         if (payment.status === 'paid') throw new Error('该订单已支付');
 
-        const pickupWindow = String(Math.floor(Math.random() * 5) + 1);
+        const pickupWindow = String(Math.floor(Math.random() * PICKUP_WINDOW_COUNT) + 1);
         const aptPrescriptions = prescriptions.filter((p) => p.appointmentId === payment.appointmentId);
-        const itemDetails = buildItemDetails(payment.items, aptPrescriptions, payment.appointmentId, pickupWindow);
+        const itemDetails = buildItemDetails(payment.items, aptPrescriptions, payment.appointmentId, pickupWindow, true);
 
         const updated: Payment = {
           ...payment,
@@ -473,6 +483,19 @@ export const useHospitalStore = create<HospitalState>()(
               relatedId: paymentId,
             };
             get().addTodo(medTodo);
+
+            const medMsg: Message = {
+              id: genId(),
+              userId: apt.userId,
+              role: 'patient',
+              type: 'system',
+              title: '待取药提醒',
+              content: `您的药品正在调配中，请前往${pickupWindow}号窗口排队取药`,
+              voucherAvailable: false,
+              isRead: false,
+              createdAt: new Date().toISOString(),
+            };
+            set((state) => ({ messages: [...state.messages, medMsg] }));
           }
 
           const reviewTodo: Omit<TodoItem, 'id' | 'createdAt'> = {
@@ -596,6 +619,10 @@ export const useHospitalStore = create<HospitalState>()(
         deptDoctors.forEach((doc) => {
           next7Days.forEach((date) => {
             const dayIdx = (new Date(date).getDay() + 6) % 7;
+            const slotsOfDay = (['morning', 'afternoon', 'evening'] as TimeSlot[]).filter((slot) => rules[`${dayIdx}-${slot}`]);
+            const slotCountToday = slotsOfDay.length || 1;
+            const perSlotQuota = Math.max(10, Math.floor(dept.dailyQuota / (deptDoctors.length * slotCountToday)));
+
             (['morning', 'afternoon', 'evening'] as TimeSlot[]).forEach((slot) => {
               const key = `${dayIdx}-${slot}`;
               if (rules[key]) {
@@ -605,8 +632,7 @@ export const useHospitalStore = create<HospitalState>()(
                 const bookedCount = appointments.filter(
                   (a) => a.doctorId === doc.id && a.date === date && a.timeSlot === slot && a.status !== 'cancelled'
                 ).length;
-                const newQuota = Math.max(10, Math.floor(dept.dailyQuota / (deptDoctors.length * 2)));
-                const remaining = Math.max(0, newQuota - bookedCount);
+                const remaining = Math.max(0, perSlotQuota - bookedCount);
 
                 const timeRange: Record<TimeSlot, [string, string]> = {
                   morning: ['08:00', '12:00'],
@@ -622,8 +648,8 @@ export const useHospitalStore = create<HospitalState>()(
                   timeSlot: slot,
                   startTime: timeRange[slot][0],
                   endTime: timeRange[slot][1],
-                  totalQuota: newQuota,
-                  remainingQuota: existing ? remaining : newQuota - Math.floor(Math.random() * Math.min(newQuota, 10)),
+                  totalQuota: perSlotQuota,
+                  remainingQuota: existing ? remaining : perSlotQuota - Math.floor(Math.random() * Math.min(perSlotQuota, 10)),
                 });
               }
             });
@@ -641,9 +667,28 @@ export const useHospitalStore = create<HospitalState>()(
       },
 
       bookExamTime: (paymentId, itemId, appointmentTime) => {
-        const { payments, messages, todos } = get();
+        const { payments, messages, todos, appointments } = get();
         const payment = payments.find((p) => p.id === paymentId);
-        if (!payment) return;
+        if (!payment) return false;
+
+        const item = payment.itemDetails.find((d) => d.itemId === itemId);
+        if (!item) return false;
+
+        const [date, time] = appointmentTime.split(' ');
+
+        const deptId = EXAM_ITEM_DEPARTMENT_MAP[item.name] || 'lab';
+        const availability = get().getExamSlotAvailability(item.name, date, time);
+        if (availability <= 0) {
+          return false;
+        }
+
+        const apt = appointments.find((a) => a.id === payment.appointmentId);
+        if (apt) {
+          const hasConflict = get().checkExamTimeConflict(apt.userId, date, time, itemId);
+          if (hasConflict) {
+            return false;
+          }
+        }
 
         set((state) => ({
           payments: state.payments.map((p) =>
@@ -656,32 +701,42 @@ export const useHospitalStore = create<HospitalState>()(
                 }
               : p
           ),
-          todos: state.todos.map((t) =>
-            t.relatedId === paymentId && t.type === 'examination' ? { ...t, status: 'completed' } : t
-          ),
         }));
 
-        const item = payment.itemDetails.find((d) => d.itemId === itemId);
-        if (item) {
-          const apt = get().appointments.find((a) => a.id === payment.appointmentId);
-          if (apt) {
-            const msg: Message = {
-              id: genId(),
-              userId: apt.userId,
-              role: 'patient',
-              type: 'examination',
-              title: '检查预约成功',
-              content: `${item.name} 已预约成功，时间：${appointmentTime}，地点：${item.examLocation}`,
-              voucherAvailable: true,
-              isRead: false,
-              createdAt: new Date().toISOString(),
-            };
-            set((state) => ({ messages: [...state.messages, msg] }));
+        const updatedPayment = get().payments.find((p) => p.id === paymentId);
+        if (updatedPayment && apt) {
+          const examItems = updatedPayment.itemDetails.filter((d) => d.type === 'examination');
+          const allBooked = examItems.every((d) => d.examAppointmentTime);
+          if (allBooked) {
+            set((state) => ({
+              todos: state.todos.map((t) =>
+                t.relatedId === paymentId && t.type === 'examination' ? { ...t, status: 'completed' } : t
+              ),
+            }));
           }
+
+          const msg: Message = {
+            id: genId(),
+            userId: apt.userId,
+            role: 'patient',
+            type: 'examination',
+            title: '检查预约成功',
+            content: `${item.name} 已预约成功，时间：${appointmentTime}，地点：${item.examLocation}`,
+            voucherAvailable: true,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+          };
+          set((state) => ({ messages: [...state.messages, msg] }));
         }
+
+        return true;
       },
 
       completeExam: (paymentId, itemId, result) => {
+        const { payments, messages, appointments } = get();
+        const payment = payments.find((p) => p.id === paymentId);
+        if (!payment) return;
+
         set((state) => ({
           payments: state.payments.map((p) =>
             p.id === paymentId
@@ -689,16 +744,111 @@ export const useHospitalStore = create<HospitalState>()(
                   ...p,
                   itemDetails: p.itemDetails.map((d) =>
                     d.itemId === itemId
-                      ? { ...d, examResult: result, examCompletedAt: new Date().toISOString() }
+                      ? { ...d, examResult: result, examCompletedAt: new Date().toISOString(), examReportStatus: 'pending' }
                       : d
                   ),
                 }
               : p
           ),
         }));
+
+        const item = payment.itemDetails.find((d) => d.itemId === itemId);
+        const apt = appointments.find((a) => a.id === payment.appointmentId);
+        if (item && apt) {
+          const msg: Message = {
+            id: genId(),
+            userId: apt.userId,
+            role: 'patient',
+            type: 'report',
+            title: '检查完成，报告待出',
+            content: `${item.name} 检查已完成，报告正在出具中，请耐心等待`,
+            voucherAvailable: false,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+          };
+          set((state) => ({ messages: [...state.messages, msg] }));
+        }
+      },
+
+      releaseExamReport: (paymentId, itemId) => {
+        const { payments, messages, appointments } = get();
+        const payment = payments.find((p) => p.id === paymentId);
+        if (!payment) return;
+
+        set((state) => ({
+          payments: state.payments.map((p) =>
+            p.id === paymentId
+              ? {
+                  ...p,
+                  itemDetails: p.itemDetails.map((d) =>
+                    d.itemId === itemId
+                      ? { ...d, examReportStatus: 'ready', examReportAvailableAt: new Date().toISOString() }
+                      : d
+                  ),
+                }
+              : p
+          ),
+        }));
+
+        const item = payment.itemDetails.find((d) => d.itemId === itemId);
+        const apt = appointments.find((a) => a.id === payment.appointmentId);
+        if (item && apt) {
+          const msg: Message = {
+            id: genId(),
+            userId: apt.userId,
+            role: 'patient',
+            type: 'report',
+            title: '检查报告已出',
+            content: `您的${item.name}报告已出具，可在检查预约或病历评价页面查看`,
+            voucherAvailable: false,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+          };
+          set((state) => ({ messages: [...state.messages, msg] }));
+        }
+      },
+
+      dispenseMedicine: (paymentId, itemId) => {
+        const { payments, messages, appointments } = get();
+        const payment = payments.find((p) => p.id === paymentId);
+        if (!payment) return;
+
+        set((state) => ({
+          payments: state.payments.map((p) =>
+            p.id === paymentId
+              ? {
+                  ...p,
+                  itemDetails: p.itemDetails.map((d) =>
+                    d.itemId === itemId ? { ...d, medicineStatus: 'dispensed' as MedicineStatus } : d
+                  ),
+                }
+              : p
+          ),
+        }));
+
+        const item = payment.itemDetails.find((d) => d.itemId === itemId);
+        const apt = appointments.find((a) => a.id === payment.appointmentId);
+        if (item && apt) {
+          const msg: Message = {
+            id: genId(),
+            userId: apt.userId,
+            role: 'patient',
+            type: 'system',
+            title: '药品已配好',
+            content: `您的${item.name}已调配完成，请前往${item.pickupWindow}号窗口取药`,
+            voucherAvailable: false,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+          };
+          set((state) => ({ messages: [...state.messages, msg] }));
+        }
       },
 
       updateMedicineStatus: (paymentId, itemId, status) => {
+        const { payments, todos } = get();
+        const payment = payments.find((p) => p.id === paymentId);
+        if (!payment) return;
+
         set((state) => ({
           payments: state.payments.map((p) =>
             p.id === paymentId
@@ -710,12 +860,64 @@ export const useHospitalStore = create<HospitalState>()(
                 }
               : p
           ),
-          todos: status === 'picked_up'
-            ? state.todos.map((t) =>
-                t.relatedId === paymentId && t.type === 'medicine' ? { ...t, status: 'completed' } : t
-              )
-            : state.todos,
         }));
+
+        if (status === 'picked_up') {
+          const updatedPayment = get().payments.find((p) => p.id === paymentId);
+          if (updatedPayment) {
+            const medItems = updatedPayment.itemDetails.filter((d) => d.type === 'medicine');
+            const allPicked = medItems.every((d) => d.medicineStatus === 'picked_up');
+            if (allPicked) {
+              set((state) => ({
+                todos: state.todos.map((t) =>
+                  t.relatedId === paymentId && t.type === 'medicine' ? { ...t, status: 'completed' } : t
+                ),
+              }));
+            }
+          }
+        }
+      },
+
+      getExamSlotAvailability: (examName, date, time) => {
+        const deptId = EXAM_ITEM_DEPARTMENT_MAP[examName] || 'lab';
+        const dept = EXAM_DEPARTMENTS.find((d) => d.id === deptId);
+        if (!dept) return 0;
+        const capacity = dept.capacityPerSlot;
+
+        const { payments } = get();
+        let booked = 0;
+        payments.forEach((p) => {
+          if (p.status !== 'paid') return;
+          p.itemDetails.forEach((d) => {
+            if (d.type !== 'examination' || !d.examAppointmentTime) return;
+            const itemDeptId = EXAM_ITEM_DEPARTMENT_MAP[d.name] || 'lab';
+            if (itemDeptId !== deptId) return;
+            const [aptDate, aptTime] = d.examAppointmentTime.split(' ');
+            if (aptDate === date && aptTime === time) {
+              booked++;
+            }
+          });
+        });
+
+        return Math.max(0, capacity - booked);
+      },
+
+      checkExamTimeConflict: (userId, date, time, excludeItemId?) => {
+        const { payments, appointments } = get();
+        const userAptIds = appointments.filter((a) => a.userId === userId).map((a) => a.id);
+        const userPayments = payments.filter((p) => userAptIds.includes(p.appointmentId) && p.status === 'paid');
+
+        for (const p of userPayments) {
+          for (const d of p.itemDetails) {
+            if (d.type !== 'examination' || !d.examAppointmentTime) continue;
+            if (excludeItemId && d.itemId === excludeItemId) continue;
+            const [aptDate, aptTime] = d.examAppointmentTime.split(' ');
+            if (aptDate === date && aptTime === time) {
+              return true;
+            }
+          }
+        }
+        return false;
       },
 
       addTodo: (todo) => {

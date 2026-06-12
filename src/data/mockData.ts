@@ -555,7 +555,7 @@ function buildPaymentItemDetails(
     (p) => p.appointmentId === appointmentId && p.type === 'medicine'
   );
 
-  return items.map((item) => {
+  return items.map((item, idx) => {
     const isExam = examPrescriptions.some((p) => p.items.some((i) => i.id === item.id));
     const isMed = medPrescriptions.some((p) => p.items.some((i) => i.id === item.id));
     const type: 'examination' | 'medicine' = isExam ? 'examination' : isMed ? 'medicine' : 'medicine';
@@ -568,11 +568,16 @@ function buildPaymentItemDetails(
     };
 
     if (type === 'medicine') {
-      detail.medicineStatus = pickupWindow ? 'dispensed' : 'pending';
+      detail.medicineStatus = pickupWindow ? 'pending' : 'pending';
       detail.pickupWindow = pickupWindow;
+      if (pickupWindow) {
+        detail.medicinePickupCode = String(100000 + Math.floor(Math.random() * 900000));
+        detail.medicineQueuePosition = idx + 1 + Math.floor(Math.random() * 10);
+      }
     } else {
       detail.examLocation = EXAM_LOCATIONS[item.name] || '门诊楼1层';
       detail.examNotes = EXAM_NOTES[item.name] || '请按医嘱进行检查';
+      detail.examReportStatus = 'pending';
     }
 
     return detail;
@@ -584,11 +589,34 @@ export const payments: Payment[] = [
     id: 'pay1',
     appointmentId: 'apt1',
     items: prescriptions[0].items.concat(prescriptions[1].items),
-    itemDetails: buildPaymentItemDetails(
-      prescriptions[0].items.concat(prescriptions[1].items),
-      'apt1',
-      '3号取药窗口'
-    ),
+    itemDetails: (() => {
+      const details = buildPaymentItemDetails(
+        prescriptions[0].items.concat(prescriptions[1].items),
+        'apt1',
+        '3号取药窗口'
+      );
+      const now = new Date();
+      const examCompletedTime = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+      const reportReadyTime = new Date(now.getTime() - 30 * 60 * 1000);
+      details.forEach((d) => {
+        if (d.type === 'examination') {
+          d.examCompletedAt = examCompletedTime.toISOString();
+          if (d.itemId === 'preitem1') {
+            d.examResult = '白细胞计数：6.5×10⁹/L，红细胞计数：4.8×10¹²/L，血红蛋白：145g/L，血小板计数：220×10⁹/L。各项指标均在正常范围内。';
+            d.examReportStatus = 'ready';
+            d.examReportAvailableAt = reportReadyTime.toISOString();
+          } else if (d.itemId === 'preitem2') {
+            d.examResult = '窦性心律，心率72次/分，各导联未见明显ST-T改变，心电图正常。';
+            d.examReportStatus = 'ready';
+            d.examReportAvailableAt = reportReadyTime.toISOString();
+          } else if (d.itemId === 'preitem3') {
+            d.examResult = '各房室腔大小正常，室壁厚度正常，运动协调，各瓣膜形态及启闭未见明显异常。';
+            d.examReportStatus = 'pending';
+          }
+        }
+      });
+      return details;
+    })(),
     totalAmount: 571,
     insuranceCoverage: 415.35,
     selfPayAmount: 155.65,

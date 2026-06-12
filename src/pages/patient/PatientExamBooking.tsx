@@ -10,6 +10,7 @@ import {
   Stethoscope,
   CheckCircle2,
   Search,
+  FileText,
 } from 'lucide-react';
 import { useHospitalStore } from '@/store';
 import type { PaymentItemDetail, Payment } from '@/types';
@@ -21,31 +22,25 @@ interface ExamSlot {
   dateLabel: string;
   time: string;
   available: boolean;
+  availability: number;
 }
+
+const TIMES = ['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '14:00', '14:30', '15:00', '15:30', '16:00'];
+const WEEK_DAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
 const genId = () => Math.random().toString(36).slice(2, 11);
 
-const generateSlots = (): ExamSlot[] => {
-  const slots: ExamSlot[] = [];
-  const times = ['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '14:00', '14:30', '15:00', '15:30', '16:00'];
-  const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const generateDates = (): Array<{ date: string; dateLabel: string }> => {
+  const dates: Array<{ date: string; dateLabel: string }> = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
     const dateStr = d.toISOString().split('T')[0];
     const dayOfWeek = d.getDay();
-    const dateLabel = i === 0 ? '今天' : i === 1 ? '明天' : `${d.getMonth() + 1}月${d.getDate()}日 ${weekDays[dayOfWeek]}`;
-    times.forEach((time) => {
-      slots.push({
-        id: genId(),
-        date: dateStr,
-        dateLabel,
-        time,
-        available: Math.random() > 0.3,
-      });
-    });
+    const dateLabel = i === 0 ? '今天' : i === 1 ? '明天' : `${d.getMonth() + 1}月${d.getDate()}日 ${WEEK_DAYS[dayOfWeek]}`;
+    dates.push({ date: dateStr, dateLabel });
   }
-  return slots;
+  return dates;
 };
 
 export default function PatientExamBooking() {
@@ -54,6 +49,9 @@ export default function PatientExamBooking() {
   const getExamItemsByUser = useHospitalStore((s) => s.getExamItemsByUser);
   const bookExamTime = useHospitalStore((s) => s.bookExamTime);
   const completeExam = useHospitalStore((s) => s.completeExam);
+  const releaseExamReport = useHospitalStore((s) => s.releaseExamReport);
+  const getExamSlotAvailability = useHospitalStore((s) => s.getExamSlotAvailability);
+  const checkExamTimeConflict = useHospitalStore((s) => s.checkExamTimeConflict);
   const getAppointmentsByUser = useHospitalStore((s) => s.getAppointmentsByUser);
   const getDoctorById = useHospitalStore((s) => s.getDoctorById);
   const getDepartmentById = useHospitalStore((s) => s.getDepartmentById);
@@ -65,6 +63,16 @@ export default function PatientExamBooking() {
   const [toast, setToast] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const dates = useMemo(() => generateDates(), []);
+
+  const dateLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    dates.forEach((d) => {
+      map[d.date] = d.dateLabel;
+    });
+    return map;
+  }, [dates]);
+
   const examItems = useMemo(() => {
     if (!currentUser) return [];
     const items = getExamItemsByUser(currentUser.id);
@@ -73,26 +81,21 @@ export default function PatientExamBooking() {
     return items.filter((i) => i.itemDetail.name.toLowerCase().includes(q));
   }, [currentUser, getExamItemsByUser, searchQuery]);
 
-  const allSlots = useMemo(() => generateSlots(), []);
-
-  const dates = useMemo(() => {
-    const set = new Set<string>();
-    allSlots.forEach((s) => set.add(s.date));
-    return Array.from(set);
-  }, [allSlots]);
-
-  const dateLabels = useMemo(() => {
-    const map: Record<string, string> = {};
-    allSlots.forEach((s) => {
-      map[s.date] = s.dateLabel;
-    });
-    return map;
-  }, [allSlots]);
-
   const filteredSlots = useMemo(() => {
-    if (!selectedDate) return [];
-    return allSlots.filter((s) => s.date === selectedDate);
-  }, [allSlots, selectedDate]);
+    if (!selectedDate || !selectedItem) return [];
+    const examName = selectedItem.itemDetail.name;
+    return TIMES.map((time) => {
+      const availability = getExamSlotAvailability(examName, selectedDate, time);
+      return {
+        id: `${selectedDate}-${time}`,
+        date: selectedDate,
+        dateLabel: dateLabels[selectedDate] || '',
+        time,
+        available: availability > 0,
+        availability,
+      };
+    });
+  }, [selectedDate, selectedItem, getExamSlotAvailability, dateLabels]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -100,16 +103,33 @@ export default function PatientExamBooking() {
   };
 
   const handleBookExam = () => {
-    if (!selectedItem || !selectedSlot) {
+    if (!selectedItem || !selectedSlot || !currentUser) {
       showToast('请选择检查时间');
       return;
     }
+
+    const hasConflict = checkExamTimeConflict(currentUser.id, selectedSlot.date, selectedSlot.time, selectedItem.itemDetail.itemId);
+    if (hasConflict) {
+      showToast('该时段您已有其他检查预约，请选择其他时间');
+      return;
+    }
+
     const appointmentTime = `${selectedSlot.date} ${selectedSlot.time}`;
-    bookExamTime(selectedItem.paymentId, selectedItem.itemDetail.itemId, appointmentTime);
-    setShowSuccess(true);
-    setSelectedSlot(null);
-    setSelectedDate('');
-    setTimeout(() => setShowSuccess(false), 2000);
+    const success = bookExamTime(selectedItem.paymentId, selectedItem.itemDetail.itemId, appointmentTime);
+
+    if (success) {
+      setShowSuccess(true);
+      setSelectedSlot(null);
+      setSelectedDate('');
+      setTimeout(() => setShowSuccess(false), 2000);
+    } else {
+      const availability = getExamSlotAvailability(selectedItem.itemDetail.name, selectedSlot.date, selectedSlot.time);
+      if (availability <= 0) {
+        showToast('该时段已约满，请选择其他时间');
+      } else {
+        showToast('预约失败，请稍后重试');
+      }
+    }
   };
 
   const handleMarkCompleted = (paymentId: string, itemId: string) => {
@@ -122,6 +142,11 @@ export default function PatientExamBooking() {
     const result = results[Math.floor(Math.random() * results.length)];
     completeExam(paymentId, itemId, result);
     showToast('检查已完成，结果已记录');
+  };
+
+  const handleReleaseReport = (paymentId: string, itemId: string) => {
+    releaseExamReport(paymentId, itemId);
+    showToast('报告已发布');
   };
 
   const pendingItems = examItems.filter((i) => !i.itemDetail.examAppointmentTime);
@@ -148,6 +173,30 @@ export default function PatientExamBooking() {
     const doctor = getDoctorById(apt.doctorId);
     const dept = getDepartmentById(apt.departmentId);
     return { apt, doctor, dept };
+  };
+
+  const renderReportStatus = (itemDetail: PaymentItemDetail) => {
+    if (!itemDetail.examReportStatus) return null;
+
+    if (itemDetail.examReportStatus === 'pending') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+          <Clock className="w-3 h-3" />
+          待出报告
+        </span>
+      );
+    }
+
+    if (itemDetail.examReportStatus === 'ready') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-success/10 text-success">
+          <FileText className="w-3 h-3" />
+          报告已出
+        </span>
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -275,13 +324,22 @@ export default function PatientExamBooking() {
                                 </p>
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleMarkCompleted(paymentId, itemDetail.itemId)}
-                              className="btn-secondary text-sm px-3 py-1.5 flex items-center gap-1"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              完成检查
-                            </button>
+                            <div className="flex flex-col gap-2">
+                              <button
+                                onClick={() => handleMarkCompleted(paymentId, itemDetail.itemId)}
+                                className="btn-secondary text-sm px-3 py-1.5 flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                完成检查
+                              </button>
+                              <button
+                                onClick={() => handleReleaseReport(paymentId, itemDetail.itemId)}
+                                className="text-xs px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors flex items-center gap-1"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                发布报告
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -297,21 +355,42 @@ export default function PatientExamBooking() {
                     已完成 ({completedItems.length})
                   </h2>
                   <div className="space-y-3">
-                    {completedItems.map(({ itemDetail }) => (
+                    {completedItems.map(({ paymentId, itemDetail }) => (
                       <div
                         key={itemDetail.itemId}
                         className="p-4 rounded-xl bg-slate-50 border border-slate-200"
                       >
-                        <p className="font-medium text-slate-800">{itemDetail.name}</p>
-                        <p className="text-xs text-slate-400 mt-1">
-                          检查时间：{itemDetail.examAppointmentTime} · 完成时间：{itemDetail.examCompletedAt ? new Date(itemDetail.examCompletedAt).toLocaleString('zh-CN') : ''}
-                        </p>
-                        {itemDetail.examResult && (
-                          <div className="mt-3 p-3 rounded-lg bg-white border border-slate-100">
-                            <p className="text-xs text-slate-500 mb-1">检查结果：</p>
-                            <p className="text-sm text-slate-700">{itemDetail.examResult}</p>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-slate-800">{itemDetail.name}</p>
+                              {renderReportStatus(itemDetail)}
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1">
+                              检查时间：{itemDetail.examAppointmentTime} · 完成时间：{itemDetail.examCompletedAt ? new Date(itemDetail.examCompletedAt).toLocaleString('zh-CN') : ''}
+                            </p>
+                            {itemDetail.examReportStatus === 'ready' && itemDetail.examReportAvailableAt && (
+                              <p className="text-xs text-success mt-1">
+                                报告出具时间：{new Date(itemDetail.examReportAvailableAt).toLocaleString('zh-CN')}
+                              </p>
+                            )}
+                            {itemDetail.examResult && (
+                              <div className="mt-3 p-3 rounded-lg bg-white border border-slate-100">
+                                <p className="text-xs text-slate-500 mb-1">检查结果：</p>
+                                <p className="text-sm text-slate-700">{itemDetail.examResult}</p>
+                              </div>
+                            )}
                           </div>
-                        )}
+                          {itemDetail.examReportStatus === 'pending' && (
+                            <button
+                              onClick={() => handleReleaseReport(paymentId, itemDetail.itemId)}
+                              className="text-xs px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors flex items-center gap-1 flex-shrink-0"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              模拟出报告
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -366,7 +445,7 @@ export default function PatientExamBooking() {
                       选择日期
                     </h3>
                     <div className="grid grid-cols-7 gap-2">
-                      {dates.map((date) => (
+                      {dates.map(({ date, dateLabel }) => (
                         <button
                           key={date}
                           onClick={() => {
@@ -379,8 +458,8 @@ export default function PatientExamBooking() {
                               : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
                           }`}
                         >
-                          <p className="text-sm font-medium">{dateLabels[date]?.split(' ')[1] || date.slice(5)}</p>
-                          <p className="text-xs opacity-70 mt-0.5">{dateLabels[date]?.split(' ')[0] || ''}</p>
+                          <p className="text-sm font-medium">{dateLabel.split(' ')[1] || date.slice(5)}</p>
+                          <p className="text-xs opacity-70 mt-0.5">{dateLabel.split(' ')[0] || ''}</p>
                         </button>
                       ))}
                     </div>
@@ -398,15 +477,20 @@ export default function PatientExamBooking() {
                             key={slot.id}
                             disabled={!slot.available}
                             onClick={() => setSelectedSlot(slot)}
-                            className={`py-3 rounded-xl text-center font-medium transition-all ${
+                            className={`py-3 rounded-xl text-center font-medium transition-all relative ${
                               !slot.available
-                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed line-through'
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                 : selectedSlot?.id === slot.id
                                 ? 'bg-medical-500 text-white shadow-md'
                                 : 'bg-slate-50 hover:bg-medical-50 hover:text-medical-600 text-slate-700'
                             }`}
                           >
-                            {slot.time}
+                            <div>{slot.time}</div>
+                            <div className={`text-xs mt-0.5 ${
+                              !slot.available ? 'text-slate-400' : selectedSlot?.id === slot.id ? 'text-white/80' : 'text-slate-500'
+                            }`}>
+                              {slot.availability <= 0 ? '约满' : `剩${slot.availability}个`}
+                            </div>
                           </button>
                         ))}
                       </div>
@@ -451,7 +535,7 @@ export default function PatientExamBooking() {
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up">
           <div className="bg-slate-800 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-2">
-            {toast.includes('成功') || toast.includes('完成') ? (
+            {toast.includes('成功') || toast.includes('完成') || toast.includes('已发布') || toast.includes('已出') ? (
               <CheckCircle2 className="w-5 h-5 text-success" />
             ) : (
               <AlertCircle className="w-5 h-5 text-warning" />

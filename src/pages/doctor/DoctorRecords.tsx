@@ -303,6 +303,7 @@ export default function DoctorRecords() {
                                           {pre.items.map((item) => {
                                             const examDetail = getExamResultForItem(apt.id, item.id);
                                             const hasResult = !!examDetail?.examResult;
+                                            const reportStatus = examDetail?.examReportStatus;
                                             return (
                                               <div
                                                 key={item.id}
@@ -316,15 +317,34 @@ export default function DoctorRecords() {
                                                   <span className="font-medium text-slate-700">
                                                     {item.name}
                                                   </span>
-                                                  <span
-                                                    className={`badge text-[10px] ${
-                                                      hasResult
-                                                        ? 'bg-emerald-100 text-emerald-700'
-                                                        : 'bg-slate-100 text-slate-500'
-                                                    }`}
-                                                  >
-                                                    {hasResult ? '已完成' : '待检查'}
-                                                  </span>
+                                                  <div className="flex items-center gap-1">
+                                                    {reportStatus && (
+                                                      <span
+                                                        className={`badge text-[10px] ${
+                                                          reportStatus === 'ready'
+                                                            ? 'bg-emerald-100 text-emerald-700'
+                                                            : reportStatus === 'pending'
+                                                            ? 'bg-amber-100 text-amber-700'
+                                                            : 'bg-slate-100 text-slate-500'
+                                                        }`}
+                                                      >
+                                                        {reportStatus === 'ready'
+                                                          ? '报告已出'
+                                                          : reportStatus === 'pending'
+                                                          ? '待出报告'
+                                                          : '未知'}
+                                                      </span>
+                                                    )}
+                                                    <span
+                                                      className={`badge text-[10px] ${
+                                                        hasResult
+                                                          ? 'bg-emerald-100 text-emerald-700'
+                                                          : 'bg-slate-100 text-slate-500'
+                                                      }`}
+                                                    >
+                                                      {hasResult ? '已完成' : '待检查'}
+                                                    </span>
+                                                  </div>
                                                 </div>
                                                 {hasResult && examDetail ? (
                                                   <>
@@ -333,7 +353,11 @@ export default function DoctorRecords() {
                                                     </p>
                                                     <p className="text-[10px] text-slate-400 flex items-center gap-1">
                                                       <Clock className="w-2.5 h-2.5" />
-                                                      {formatDateTime(examDetail.examCompletedAt!)}
+                                                      {examDetail.examReportAvailableAt
+                                                        ? `报告时间：${formatDateTime(examDetail.examReportAvailableAt)}`
+                                                        : examDetail.examCompletedAt
+                                                        ? `检查完成时间：${formatDateTime(examDetail.examCompletedAt)}`
+                                                        : ''}
                                                     </p>
                                                   </>
                                                 ) : (

@@ -42,8 +42,8 @@ const timeSlotLabel: Record<string, string> = {
 const todoTypeConfig: Record<TodoItem['type'], { label: string; icon: any; color: string; bg: string; path: string }> = {
   checkin: { label: '待签到', icon: QrCode, color: 'text-cyan-600', bg: 'bg-cyan-100', path: '/patient/checkin' },
   payment: { label: '待缴费', icon: Wallet, color: 'text-emerald-600', bg: 'bg-emerald-100', path: '/patient/payment' },
-  examination: { label: '待预约检查', icon: CalendarPlus, color: 'text-violet-600', bg: 'bg-violet-100', path: '/patient/examination' },
-  medicine: { label: '待取药', icon: FileUp, color: 'text-amber-600', bg: 'bg-amber-100', path: '/patient/medicine' },
+  examination: { label: '待预约检查', icon: CalendarPlus, color: 'text-violet-600', bg: 'bg-violet-100', path: '/patient/exam-booking' },
+  medicine: { label: '待取药', icon: FileUp, color: 'text-amber-600', bg: 'bg-amber-100', path: '/patient/payment' },
   review: { label: '待评价', icon: Star, color: 'text-warning', bg: 'bg-warning/20', path: '/patient/records' },
 };
 

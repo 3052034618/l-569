@@ -83,6 +83,7 @@ export interface Prescription {
 
 export type PaymentStatus = 'unpaid' | 'paid';
 export type MedicineStatus = 'pending' | 'dispensed' | 'picked_up';
+export type ExamReportStatus = 'pending' | 'ready';
 
 export interface PaymentItemDetail {
   itemId: string;
@@ -91,11 +92,15 @@ export interface PaymentItemDetail {
   amount: number;
   medicineStatus?: MedicineStatus;
   pickupWindow?: string;
+  medicinePickupCode?: string;
+  medicineQueuePosition?: number;
   examLocation?: string;
   examAppointmentTime?: string;
   examNotes?: string;
   examResult?: string;
   examCompletedAt?: string;
+  examReportStatus?: ExamReportStatus;
+  examReportAvailableAt?: string;
 }
 
 export interface Payment {
@@ -220,4 +225,35 @@ export const EXAM_NOTES: Record<string, string> = {
 };
 
 export const MEDICINE_NOTES = '请凭取药码到指定窗口排队取药，药品请按医嘱服用';
+
+export interface ExamDepartment {
+  id: string;
+  name: string;
+  location: string;
+  capacityPerSlot: number;
+}
+
+export const EXAM_DEPARTMENTS: ExamDepartment[] = [
+  { id: 'lab', name: '检验科', location: '门诊楼1层', capacityPerSlot: 20 },
+  { id: 'ecg', name: '心电图室', location: '门诊楼2层', capacityPerSlot: 8 },
+  { id: 'ultrasound', name: '超声科', location: '门诊楼2层', capacityPerSlot: 12 },
+  { id: 'radiology', name: '放射科', location: '门诊楼B1层', capacityPerSlot: 6 },
+];
+
+export const EXAM_ITEM_DEPARTMENT_MAP: Record<string, string> = {
+  '血常规检查': 'lab',
+  '尿常规检查': 'lab',
+  '肝功能检查': 'lab',
+  '肾功能检查': 'lab',
+  'C反应蛋白检测': 'lab',
+  '血糖检测': 'lab',
+  '心电图检查': 'ecg',
+  '心脏彩超': 'ultrasound',
+  '腹部B超': 'ultrasound',
+  '胸部X光片': 'radiology',
+  '头部CT平扫': 'radiology',
+  '腰椎MRI平扫': 'radiology',
+};
+
+export const PICKUP_WINDOW_COUNT = 5;
 

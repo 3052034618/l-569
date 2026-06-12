@@ -20,6 +20,8 @@ export default function PatientPayment() {
   const getPaymentsByUser = useHospitalStore((s) => s.getPaymentsByUser);
   const getDoctorById = useHospitalStore((s) => s.getDoctorById);
   const getDepartmentById = useHospitalStore((s) => s.getDepartmentById);
+  const dispenseMedicine = useHospitalStore((s) => s.dispenseMedicine);
+  const updateMedicineStatus = useHospitalStore((s) => s.updateMedicineStatus);
 
   const getMedicineStatusText = (status: MedicineStatus) => {
     const map: Record<MedicineStatus, string> = {
@@ -32,9 +34,9 @@ export default function PatientPayment() {
 
   const getMedicineStatusColor = (status: MedicineStatus) => {
     const map: Record<MedicineStatus, string> = {
-      pending: 'bg-amber-100 text-amber-700',
-      dispensed: 'bg-blue-100 text-blue-700',
-      picked_up: 'bg-success/10 text-success',
+      pending: 'bg-orange-100 text-orange-700 border-orange-200',
+      dispensed: 'bg-blue-100 text-blue-700 border-blue-200',
+      picked_up: 'bg-green-100 text-green-700 border-green-200',
     };
     return map[status];
   };
@@ -391,22 +393,82 @@ export default function PatientPayment() {
                           </div>
                           <span className="font-semibold text-emerald-800">药品项目 ({medItems.length}项)</span>
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {medItems.map((item) => (
-                            <div key={item.itemId} className="bg-white rounded-lg p-3 border border-emerald-100">
-                              <div className="flex items-center justify-between mb-2">
+                            <div key={item.itemId} className={`bg-white rounded-lg p-4 border-2 ${
+                              item.medicineStatus === 'pending' ? 'border-orange-200' :
+                              item.medicineStatus === 'dispensed' ? 'border-blue-200' :
+                              'border-green-200'
+                            } transition-all`}>
+                              <div className="flex items-center justify-between mb-3">
                                 <span className="font-medium text-slate-700">{item.name}</span>
                                 {item.medicineStatus && (
-                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getMedicineStatusColor(item.medicineStatus)}`}>
+                                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getMedicineStatusColor(item.medicineStatus)}`}>
                                     {getMedicineStatusText(item.medicineStatus)}
                                   </span>
                                 )}
                               </div>
-                              {item.pickupWindow && (
-                                <div className="text-xs text-emerald-700 flex items-center gap-1">
-                                  <ShieldCheck className="w-3 h-3" />
-                                  取药窗口：{item.pickupWindow}
+                              {item.medicinePickupCode && (
+                                <div className={`text-center py-3 rounded-lg mb-3 ${
+                                  item.medicineStatus === 'pending' ? 'bg-orange-50' :
+                                  item.medicineStatus === 'dispensed' ? 'bg-blue-50' :
+                                  'bg-green-50'
+                                }`}>
+                                  <div className={`text-xs mb-1 ${
+                                    item.medicineStatus === 'pending' ? 'text-orange-600' :
+                                    item.medicineStatus === 'dispensed' ? 'text-blue-600' :
+                                    'text-green-600'
+                                  }`}>取药码</div>
+                                  <div className={`text-3xl font-bold font-mono tracking-wider ${
+                                    item.medicineStatus === 'pending' ? 'text-orange-600' :
+                                    item.medicineStatus === 'dispensed' ? 'text-blue-600' :
+                                    'text-green-600'
+                                  }`}>
+                                    {item.medicinePickupCode}
+                                  </div>
                                 </div>
+                              )}
+                              <div className="flex items-center justify-between text-sm">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  {item.pickupWindow && (
+                                    <div className="text-emerald-700 flex items-center gap-1">
+                                      <ShieldCheck className="w-3.5 h-3.5" />
+                                      取药窗口：{item.pickupWindow}号
+                                    </div>
+                                  )}
+                                  {item.medicineQueuePosition !== undefined && item.medicineStatus !== 'picked_up' && (
+                                    <div className={`flex items-center gap-1 ${
+                                      item.medicineStatus === 'pending' ? 'text-orange-600' : 'text-blue-600'
+                                    }`}>
+                                      <Clock className="w-3.5 h-3.5" />
+                                      前方还有 {item.medicineQueuePosition - 1} 人
+                                    </div>
+                                  )}
+                                  {item.medicineStatus === 'picked_up' && (
+                                    <div className="text-green-600 flex items-center gap-1">
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                      已取药
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              {item.medicineStatus === 'pending' && (
+                                <button
+                                  onClick={() => dispenseMedicine(payment.id, item.itemId)}
+                                  className="mt-3 w-full py-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 text-white text-sm font-medium hover:shadow-lg transition-all flex items-center justify-center gap-1.5"
+                                >
+                                  <Pill className="w-4 h-4" />
+                                  模拟药房发药
+                                </button>
+                              )}
+                              {item.medicineStatus === 'dispensed' && (
+                                <button
+                                  onClick={() => updateMedicineStatus(payment.id, item.itemId, 'picked_up')}
+                                  className="mt-3 w-full py-2 rounded-lg bg-gradient-to-r from-green-500 to-emerald-500 text-white text-sm font-medium hover:shadow-lg transition-all flex items-center justify-center gap-1.5"
+                                >
+                                  <CheckCircle className="w-4 h-4" />
+                                  已取药
+                                </button>
                               )}
                             </div>
                           ))}
@@ -502,20 +564,37 @@ export default function PatientPayment() {
 
             {showSuccess.itemDetails.filter((item) => item.type === 'medicine').length > 0 && (
               <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 text-left mb-4">
-                <div className="text-emerald-700 font-medium flex items-center gap-2 mb-2">
+                <div className="text-emerald-700 font-medium flex items-center gap-2 mb-3">
                   <Pill className="w-5 h-5" />
                   药品取药指引
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {showSuccess.itemDetails.filter((item) => item.type === 'medicine').map((item) => (
-                    <div key={item.itemId} className="text-emerald-600 text-sm">
-                      <div className="font-medium">{item.name}</div>
+                    <div key={item.itemId} className="bg-white rounded-lg p-3 border border-emerald-100">
+                      <div className="font-medium text-slate-700 mb-2">{item.name}</div>
+                      {item.medicinePickupCode && (
+                        <div className="text-center py-2 rounded-lg bg-orange-50 mb-2">
+                          <div className="text-xs text-orange-600 mb-0.5">取药码</div>
+                          <div className="text-2xl font-bold font-mono tracking-wider text-orange-600">
+                            {item.medicinePickupCode}
+                          </div>
+                        </div>
+                      )}
                       {item.medicineStatus && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getMedicineStatusColor(item.medicineStatus)}`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium border ${getMedicineStatusColor(item.medicineStatus)}`}>
                             {getMedicineStatusText(item.medicineStatus)}
                           </span>
-                          {item.pickupWindow && <span>· 取药窗口：{item.pickupWindow}</span>}
+                          {item.pickupWindow && (
+                            <span className="text-emerald-600 text-xs">
+                              取药窗口：{item.pickupWindow}号
+                            </span>
+                          )}
+                          {item.medicineQueuePosition !== undefined && item.medicineStatus !== 'picked_up' && (
+                            <span className="text-orange-600 text-xs">
+                              前方还有 {item.medicineQueuePosition - 1} 人
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
